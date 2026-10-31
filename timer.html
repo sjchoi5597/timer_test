@@ -1,0 +1,937 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>교육용 비주얼 뽀모도로 타이머</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts: Inter & Orbitron (전자시계 폰트) -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@500;700&family=Inter:wght@400;600;700;800&family=Orbitron:wght@600;800;900&display=swap" rel="stylesheet">
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Canvas Confetti for Celebration -->
+  <script src="https://cdn.jsdelivr.net/npm/canvas-confetti@1.9.3/dist/confetti.browser.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            digital: ['Orbitron', 'monospace'],
+            tech: ['Chakra Petch', 'sans-serif'],
+          },
+          colors: {
+            // OLED/빔프로젝터용 트루 블랙 & 딥 그레이 계열
+            trueblack: {
+              DEFAULT: '#000000',
+              surface: '#0d0d11',
+              card: '#13131a',
+              border: '#22222d',
+              inner: '#050508'
+            },
+            brand: {
+              focus: '#EF4444',     /* 집중 - 선명한 레드/코랄 */
+              short: '#10B981',     /* 짧은 휴식 - 민트 그린 */
+              long: '#3B82F6',      /* 긴 휴식 - 스카이 블루 */
+              custom: '#F59E0B',    /* 자율 - 앰버 */
+            }
+          },
+          boxShadow: {
+            'digital-glow': '0 0 25px rgba(239, 68, 68, 0.45)',
+            'digital-green': '0 0 25px rgba(16, 185, 129, 0.45)',
+            'digital-blue': '0 0 25px rgba(59, 130, 246, 0.45)',
+            'neon-edge': '0 0 35px -5px rgba(239, 68, 68, 0.35)',
+          }
+        }
+      }
+    }
+  </script>
+  <style>
+    /* 트루 블랙 테마 배경 강제 최적화 */
+    .dark body {
+      background-color: #000000 !important;
+    }
+    /* 전자시계 세그먼트 배경 효과 */
+    .digital-bg-ghost {
+      position: absolute;
+      opacity: 0.08;
+      pointer-events: none;
+      user-select: none;
+    }
+    /* 원형 타이머 부드러운 전환 */
+    .timer-ring-circle {
+      transition: stroke-dashoffset 0.8s linear, stroke 0.4s ease;
+      transform: rotate(-90deg);
+      transform-origin: 50% 50%;
+    }
+    /* 파이(원반) 마스크 */
+    .pie-slice {
+      transition: all 0.8s linear;
+      transform-origin: 50% 50%;
+    }
+  </style>
+</head>
+<body class="bg-slate-100 dark:bg-black text-slate-800 dark:text-slate-100 min-h-screen flex flex-col font-sans transition-colors duration-300 select-none">
+
+  <!-- 상단 네비게이션 & 교실용 유틸리티 바 -->
+  <header class="w-full bg-white/80 dark:bg-[#0d0d12]/90 backdrop-blur-md border-b border-slate-200 dark:border-[#22222d] sticky top-0 z-40 px-4 py-3 sm:px-6">
+    <div class="max-w-6xl mx-auto flex flex-wrap items-center justify-between gap-3">
+      <!-- 로고 & 교실 타이틀 -->
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 rounded-xl bg-gradient-to-tr from-rose-500 to-amber-500 flex items-center justify-center text-white shadow-md">
+          <i data-lucide="clock" class="w-6 h-6"></i>
+        </div>
+        <div>
+          <h1 class="text-lg sm:text-xl font-bold tracking-tight flex items-center gap-2">
+            <span>에듀 뽀모도로</span>
+            <span class="text-xs bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300 border border-transparent dark:border-rose-900/60 font-semibold px-2 py-0.5 rounded-full">교실 모드</span>
+          </h1>
+          <p class="text-xs text-slate-500 dark:text-slate-400">학생들을 위한 시각적 비주얼 시간 관리</p>
+        </div>
+      </div>
+
+      <!-- 현재 시각 전자시계 & 교실 편의 버튼 -->
+      <div class="flex items-center gap-2 sm:gap-4">
+        <!-- 실시간 시계 위젯 -->
+        <div class="hidden sm:flex items-center gap-2 bg-slate-100 dark:bg-[#15151c] px-3 py-1.5 rounded-lg border border-slate-200 dark:border-[#252533]">
+          <i data-lucide="calendar" class="w-4 h-4 text-slate-500 dark:text-slate-400"></i>
+          <span id="currentRealTime" class="font-tech text-sm tracking-wider font-semibold text-slate-600 dark:text-slate-300">--:--:--</span>
+        </div>
+
+        <!-- 알림 사운드 토글 -->
+        <button id="soundToggleBtn" title="알림음 토글" class="p-2.5 rounded-xl border border-slate-200 dark:border-[#2a2a38] bg-white dark:bg-[#171720] hover:bg-slate-50 dark:hover:bg-[#20202c] transition">
+          <i id="soundIcon" data-lucide="volume-2" class="w-5 h-5 text-emerald-600 dark:text-emerald-400"></i>
+        </button>
+
+        <!-- 디스크 면적 모드 토글 (파이 채우기 vs 링 아웃라인) -->
+        <button id="viewModeBtn" title="시각화 모드 전환 (원반 / 링)" class="p-2.5 rounded-xl border border-slate-200 dark:border-[#2a2a38] bg-white dark:bg-[#171720] hover:bg-slate-50 dark:hover:bg-[#20202c] transition flex items-center gap-1.5 text-xs font-semibold">
+          <i data-lucide="pie-chart" class="w-5 h-5 text-indigo-500 dark:text-indigo-400"></i>
+          <span class="hidden md:inline" id="viewModeText">원반형</span>
+        </button>
+
+        <!-- 다크/라이트 모드 토글 스위치 -->
+        <button id="themeToggleBtn" title="테마 변경 (다크/라이트)" class="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 dark:border-[#2a2a38] bg-white dark:bg-[#171720] hover:bg-slate-50 dark:hover:bg-[#20202c] transition text-xs font-bold">
+          <i id="themeIcon" data-lucide="moon" class="w-5 h-5 text-indigo-600 dark:text-amber-400"></i>
+          <span id="themeText" class="hidden sm:inline">다크 모드</span>
+        </button>
+
+        <!-- 전체화면 (수업용 프로젝터/칠판 최적화) -->
+        <button id="fullscreenBtn" title="전체화면" class="p-2.5 rounded-xl bg-slate-900 text-white dark:bg-rose-600 hover:bg-slate-800 dark:hover:bg-rose-500 transition shadow-sm">
+          <i id="fullscreenIcon" data-lucide="maximize" class="w-5 h-5"></i>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <!-- 메인 컨텐츠 영역 -->
+  <main class="flex-1 max-w-5xl w-full mx-auto p-4 sm:p-6 lg:p-8 flex flex-col items-center justify-between gap-6">
+
+    <!-- 1. 상단: 전자시계 디지털 타이머 디스플레이 & 직접 세팅 패널 -->
+    <section class="w-full bg-white dark:bg-[#111116] rounded-3xl p-5 shadow-xl dark:shadow-2xl border border-slate-200/80 dark:border-[#22222e] transition-all">
+      <div class="flex flex-col lg:flex-row items-center justify-between gap-5">
+        
+        <!-- 왼쪽: 대형 LED 세그먼트 전자시계 표시창 -->
+        <div class="flex flex-col items-center lg:items-start w-full lg:w-auto">
+          <span class="text-xs uppercase tracking-widest text-slate-400 dark:text-slate-400 font-bold mb-1 flex items-center gap-1.5">
+            <span class="inline-block w-2 h-2 rounded-full bg-red-500 animate-pulse"></span>
+            디지털 타이머 세팅창
+          </span>
+          <div class="relative bg-slate-950 dark:bg-black px-6 py-3 rounded-2xl border-4 border-slate-900 dark:border-[#1e1e28] shadow-inner flex items-center justify-center min-w-[280px] sm:min-w-[320px]">
+            <!-- 고스트 백그라운드 88:88 -->
+            <span class="digital-bg-ghost font-digital text-4xl sm:text-5xl font-black text-rose-500/20 tracking-widest">
+              88:88
+            </span>
+            <!-- 실제 시간 카운트다운 숫자 -->
+            <span id="digitalClockDisplay" class="font-digital text-4xl sm:text-5xl font-extrabold tracking-widest text-rose-500 drop-shadow-[0_0_15px_rgba(239,68,68,0.7)]">
+              25:00
+            </span>
+          </div>
+        </div>
+
+        <!-- 오른쪽: 직관적 시간 설정기 (분/초 직접 입력 + 빠른 프리셋 버튼) -->
+        <div class="flex-1 w-full flex flex-col gap-3">
+          <!-- 모드 탭 (집중 / 짧은 휴식 / 긴 휴식 / 자율) -->
+          <div class="grid grid-cols-4 gap-1.5 p-1 bg-slate-100 dark:bg-[#07070a] rounded-2xl text-xs sm:text-sm font-semibold border border-transparent dark:border-[#1c1c24]">
+            <button class="mode-tab active py-2 rounded-xl transition flex items-center justify-center gap-1 bg-white dark:bg-[#1a1a24] text-rose-600 dark:text-rose-400 shadow-sm" data-mode="focus" data-time="25">
+              <span>✍️</span> <span>수업/집중</span>
+            </button>
+            <button class="mode-tab py-2 rounded-xl transition flex items-center justify-center gap-1 text-slate-600 dark:text-slate-400 hover:text-emerald-500" data-mode="short" data-time="5">
+              <span>☕</span> <span>쉬는시간</span>
+            </button>
+            <button class="mode-tab py-2 rounded-xl transition flex items-center justify-center gap-1 text-slate-600 dark:text-slate-400 hover:text-blue-500" data-mode="long" data-time="15">
+              <span>🎮</span> <span>긴 휴식</span>
+            </button>
+            <button class="mode-tab py-2 rounded-xl transition flex items-center justify-center gap-1 text-slate-600 dark:text-slate-400 hover:text-amber-500" data-mode="custom" data-time="10">
+              <span>⚡</span> <span>자율</span>
+            </button>
+          </div>
+
+          <!-- 프리셋 & 사용자 입력 컨트롤 바 -->
+          <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+            <!-- 프리셋 버튼 모음 -->
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <span class="text-xs text-slate-500 dark:text-slate-400 font-semibold mr-1">수업 프리셋:</span>
+              <button onclick="setPresetMinutes(3)" class="px-2.5 py-1 text-xs font-bold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#191922] dark:hover:bg-[#252533] dark:text-slate-200 border border-transparent dark:border-[#2a2a3a] transition">3분</button>
+              <button onclick="setPresetMinutes(5)" class="px-2.5 py-1 text-xs font-bold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#191922] dark:hover:bg-[#252533] dark:text-slate-200 border border-transparent dark:border-[#2a2a3a] transition">5분</button>
+              <button onclick="setPresetMinutes(10)" class="px-2.5 py-1 text-xs font-bold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#191922] dark:hover:bg-[#252533] dark:text-slate-200 border border-transparent dark:border-[#2a2a3a] transition">10분</button>
+              <button onclick="setPresetMinutes(15)" class="px-2.5 py-1 text-xs font-bold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#191922] dark:hover:bg-[#252533] dark:text-slate-200 border border-transparent dark:border-[#2a2a3a] transition">15분</button>
+              <button onclick="setPresetMinutes(25)" class="px-2.5 py-1 text-xs font-bold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#191922] dark:hover:bg-[#252533] dark:text-slate-200 border border-transparent dark:border-[#2a2a3a] transition">25분</button>
+              <button onclick="setPresetMinutes(40)" class="px-2.5 py-1 text-xs font-bold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#191922] dark:hover:bg-[#252533] dark:text-slate-200 border border-transparent dark:border-[#2a2a3a] transition">40분</button>
+              <button onclick="setPresetMinutes(50)" class="px-2.5 py-1 text-xs font-bold rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-[#191922] dark:hover:bg-[#252533] dark:text-slate-200 border border-transparent dark:border-[#2a2a3a] transition">50분</button>
+            </div>
+
+            <!-- 직접 시간 입력 (분/초 조정) -->
+            <div class="flex items-center gap-1.5 ml-auto">
+              <div class="flex items-center bg-slate-100 dark:bg-[#171720] rounded-xl px-2 py-1 border border-slate-200 dark:border-[#282836]">
+                <input id="customMinutesInput" type="number" min="0" max="99" value="25" class="w-10 bg-transparent text-center font-bold text-sm text-slate-800 dark:text-slate-100 focus:outline-none" title="분 입력">
+                <span class="text-xs text-slate-400 font-bold">분</span>
+                <span class="mx-1 text-slate-400">:</span>
+                <input id="customSecondsInput" type="number" min="0" max="59" value="00" class="w-10 bg-transparent text-center font-bold text-sm text-slate-800 dark:text-slate-100 focus:outline-none" title="초 입력">
+                <span class="text-xs text-slate-400 font-bold">초</span>
+              </div>
+              <button id="applyCustomTimeBtn" class="px-3 py-1.5 text-xs font-bold bg-slate-800 text-white dark:bg-rose-600 dark:text-white rounded-xl hover:opacity-90 active:scale-95 transition">
+                적용
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- 2. 중앙: 학생들이 한눈에 인지할 수 있는 Time Timer 시각적 원형 게이지 -->
+    <section class="flex-1 w-full flex flex-col items-center justify-center relative my-2">
+      <!-- 타이머 비주얼 컨테이너 -->
+      <div class="relative w-[300px] h-[300px] sm:w-[380px] sm:h-[380px] md:w-[440px] md:h-[440px] flex items-center justify-center">
+
+        <!-- 은은한 외곽 글로우 배경 -->
+        <div id="visualGlowRing" class="absolute inset-0 rounded-full bg-rose-500/10 blur-3xl transition-all duration-700"></div>
+
+        <!-- 360도 눈금 마커 (교실 시계 감각 증진) -->
+        <svg class="absolute inset-0 w-full h-full pointer-events-none" viewBox="0 0 100 100">
+          <!-- 12개 시계 눈금 마크 -->
+          <g class="stroke-slate-300 dark:stroke-slate-700/80" stroke-width="1.2" stroke-linecap="round">
+            <line x1="50" y1="4" x2="50" y2="8" />
+            <line x1="50" y1="92" x2="50" y2="96" />
+            <line x1="4" y1="50" x2="8" y2="50" />
+            <line x1="92" y1="50" x2="96" y2="50" />
+            <line x1="17.5" y1="17.5" x2="20.5" y2="20.5" />
+            <line x1="82.5" y1="82.5" x2="79.5" y2="79.5" />
+            <line x1="17.5" y1="82.5" x2="20.5" y2="79.5" />
+            <line x1="82.5" y1="17.5" x2="79.5" y2="20.5" />
+          </g>
+        </svg>
+
+        <!-- SVG 비주얼 타이머 그래픽 (파이 디스크 & 프로그레스 링) -->
+        <svg id="timerSvg" class="w-[90%] h-[90%] -rotate-90 transform" viewBox="0 0 200 200">
+          <!-- 배경 원 베이스 -->
+          <circle cx="100" cy="100" r="88" class="fill-slate-200/50 dark:fill-[#0c0c10] stroke-slate-200 dark:stroke-[#1f1f2a]" stroke-width="6" />
+
+          <!-- 모드 1: Time Timer 스타일의 '면적이 줄어드는' 파이 부채꼴 조각 -->
+          <path id="timerPieSlice" d="" class="pie-slice fill-rose-500/85 dark:fill-rose-500/90 transition-all duration-300" />
+
+          <!-- 모드 2: 두꺼운 프로그레스 링 테두리 -->
+          <circle id="timerProgressRing" cx="100" cy="100" r="88" 
+                  class="timer-ring-circle fill-transparent stroke-rose-500" 
+                  stroke-width="12" 
+                  stroke-linecap="round"
+                  stroke-dasharray="552.92" 
+                  stroke-dashoffset="0" />
+        </svg>
+
+        <!-- 중앙 콘텐츠: 시각적 남은 시간 텍스트 & 세션 라벨 -->
+        <div class="absolute inset-0 flex flex-col items-center justify-center text-center pointer-events-none">
+          <!-- 세션 뱃지 -->
+          <div id="sessionBadge" class="flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs sm:text-sm font-bold bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300 dark:border dark:border-rose-900/60 mb-2 shadow-sm transition-all duration-300">
+            <span id="sessionIcon">✍️</span>
+            <span id="sessionName">수업 집중 시간</span>
+          </div>
+
+          <!-- 대형 남은 시간 카운터 -->
+          <div id="mainTimeDisplay" class="font-digital text-5xl sm:text-6xl md:text-7xl font-black tracking-tight text-slate-800 dark:text-white drop-shadow-[0_4px_16px_rgba(0,0,0,0.8)] transition-colors">
+            25:00
+          </div>
+
+          <!-- 진행률 퍼센트 표시 -->
+          <div class="mt-2 text-xs sm:text-sm font-bold text-slate-500 dark:text-slate-400 font-tech">
+            남은 시간 <span id="percentRemaining" class="text-rose-600 dark:text-rose-400 font-extrabold text-base">100%</span>
+          </div>
+
+          <!-- 상태 알림 캡션 (집중 유지 / 휴식 중) -->
+          <div id="statusSubtext" class="text-xs text-slate-400 dark:text-slate-400 font-medium mt-1">
+            "시작 버튼을 눌러 수업을 시작해보세요!"
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- 3. 하단: 직관적인 제어 버튼부 (크고 잘 보이는 버튼) -->
+    <section class="w-full max-w-xl flex flex-col items-center gap-4">
+      <!-- 핵심 동작 컨트롤 (시작/일시정지, 초기화, 넘기기) -->
+      <div class="flex items-center justify-center gap-4 w-full">
+        <!-- 리셋 버튼 -->
+        <button id="resetBtn" title="타이머 초기화" class="p-4 rounded-2xl bg-slate-200 dark:bg-[#1a1a24] text-slate-700 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-[#262636] border border-transparent dark:border-[#2b2b3b] active:scale-95 transition-all flex items-center justify-center shadow-md">
+          <i data-lucide="rotate-ccw" class="w-6 h-6"></i>
+        </button>
+
+        <!-- 메인 시작/일시정지 버튼 (대형 버튼으로 교실 터치스크린 최적화) -->
+        <button id="startPauseBtn" class="flex-1 max-w-xs py-4 px-8 rounded-2xl bg-rose-600 hover:bg-rose-500 active:scale-98 text-white font-bold text-lg sm:text-xl shadow-lg shadow-rose-600/30 flex items-center justify-center gap-3 transition-all">
+          <i id="playIcon" data-lucide="play" class="w-7 h-7 fill-white"></i>
+          <span id="playBtnText">타이머 시작</span>
+        </button>
+
+        <!-- 다음 단계 넘어가기 버튼 -->
+        <button id="skipBtn" title="다음 세션으로 건너뛰기" class="p-4 rounded-2xl bg-slate-200 dark:bg-[#1a1a24] text-slate-700 dark:text-slate-200 hover:bg-slate-300 dark:hover:bg-[#262636] border border-transparent dark:border-[#2b2b3b] active:scale-95 transition-all flex items-center justify-center shadow-md">
+          <i data-lucide="skip-forward" class="w-6 h-6"></i>
+        </button>
+      </div>
+
+      <!-- 뽀모도로 세션 카운터 (오늘 완료한 집중 사이클 표시) -->
+      <div class="flex items-center justify-center gap-2 text-xs sm:text-sm font-semibold text-slate-500 dark:text-slate-400 bg-white dark:bg-[#111116] px-4 py-2 rounded-xl border border-slate-200 dark:border-[#22222e]">
+        <span>오늘 완료한 집중:</span>
+        <div id="pomodoroDots" class="flex items-center gap-1.5">
+          <!-- JS로 동적 생성 -->
+          <span class="w-3 h-3 rounded-full bg-slate-300 dark:bg-slate-700"></span>
+          <span class="w-3 h-3 rounded-full bg-slate-300 dark:bg-slate-700"></span>
+          <span class="w-3 h-3 rounded-full bg-slate-300 dark:bg-slate-700"></span>
+          <span class="w-3 h-3 rounded-full bg-slate-300 dark:bg-slate-700"></span>
+        </div>
+        <span id="cycleCountText" class="ml-1 text-slate-700 dark:text-slate-200 font-bold">0 세션</span>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- 인라인 메시지 박스 (alert 대체) -->
+  <div id="toastMessage" class="fixed bottom-6 right-6 z-50 transform translate-y-20 opacity-0 transition-all duration-300 flex items-center gap-2 bg-slate-900 text-white dark:bg-[#1f1f2b] dark:text-slate-100 dark:border dark:border-[#323246] px-4 py-3 rounded-2xl shadow-2xl text-sm font-semibold pointer-events-none">
+    <i data-lucide="info" class="w-5 h-5 text-rose-500"></i>
+    <span id="toastText">설정이 완료되었습니다.</span>
+  </div>
+
+  <script>
+    /* =====================================================================
+     *  교육용 비주얼 뽀모도로 타이머 - 핵심 로직
+     * ===================================================================== */
+
+    // 기본 설정 모드 객체
+    const MODES = {
+      focus: {
+        name: '수업 집중 시간',
+        icon: '✍️',
+        defaultSeconds: 25 * 60,
+        color: '#EF4444',
+        glowClass: 'bg-rose-500/10',
+        badgeClass: 'bg-rose-100 text-rose-700 dark:bg-rose-950/80 dark:text-rose-300',
+        btnClass: 'bg-rose-600 hover:bg-rose-500 shadow-rose-600/30'
+      },
+      short: {
+        name: '짧은 쉬는 시간',
+        icon: '☕',
+        defaultSeconds: 5 * 60,
+        color: '#10B981',
+        glowClass: 'bg-emerald-500/10',
+        badgeClass: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/80 dark:text-emerald-300',
+        btnClass: 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/30'
+      },
+      long: {
+        name: '긴 쉬는 시간',
+        icon: '🎮',
+        defaultSeconds: 15 * 60,
+        color: '#3B82F6',
+        glowClass: 'bg-blue-500/10',
+        badgeClass: 'bg-blue-100 text-blue-700 dark:bg-blue-950/80 dark:text-blue-300',
+        btnClass: 'bg-blue-600 hover:bg-blue-500 shadow-blue-600/30'
+      },
+      custom: {
+        name: '자율 수업/활동',
+        icon: '⚡',
+        defaultSeconds: 10 * 60,
+        color: '#F59E0B',
+        glowClass: 'bg-amber-500/10',
+        badgeClass: 'bg-amber-100 text-amber-700 dark:bg-amber-950/80 dark:text-amber-300',
+        btnClass: 'bg-amber-600 hover:bg-amber-500 shadow-amber-600/30'
+      }
+    };
+
+    // 상태 변수
+    let currentMode = 'focus';
+    let totalSeconds = 25 * 60;
+    let remainingSeconds = 25 * 60;
+    let timerInterval = null;
+    let isRunning = false;
+    let completedPomodoros = 0;
+    let isSoundEnabled = true;
+    let visualMode = 'both'; // 'both' (부채꼴+링), 'pie' (부채꼴만), 'ring' (링만)
+
+    // 원형 둘레 계산 (반지름 r = 88 => 2 * PI * 88 ≈ 552.92)
+    const CIRCUMFERENCE = 2 * Math.PI * 88;
+
+    // DOM 요소 캐싱
+    const digitalClockDisplay = document.getElementById('digitalClockDisplay');
+    const mainTimeDisplay = document.getElementById('mainTimeDisplay');
+    const percentRemaining = document.getElementById('percentRemaining');
+    const sessionBadge = document.getElementById('sessionBadge');
+    const sessionIcon = document.getElementById('sessionIcon');
+    const sessionName = document.getElementById('sessionName');
+    const statusSubtext = document.getElementById('statusSubtext');
+    const timerProgressRing = document.getElementById('timerProgressRing');
+    const timerPieSlice = document.getElementById('timerPieSlice');
+    const visualGlowRing = document.getElementById('visualGlowRing');
+    const startPauseBtn = document.getElementById('startPauseBtn');
+    const playIcon = document.getElementById('playIcon');
+    const playBtnText = document.getElementById('playBtnText');
+    const resetBtn = document.getElementById('resetBtn');
+    const skipBtn = document.getElementById('skipBtn');
+    const soundToggleBtn = document.getElementById('soundToggleBtn');
+    const soundIcon = document.getElementById('soundIcon');
+    const viewModeBtn = document.getElementById('viewModeBtn');
+    const viewModeText = document.getElementById('viewModeText');
+    const themeToggleBtn = document.getElementById('themeToggleBtn');
+    const themeIcon = document.getElementById('themeIcon');
+    const themeText = document.getElementById('themeText');
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+    const fullscreenIcon = document.getElementById('fullscreenIcon');
+    const customMinutesInput = document.getElementById('customMinutesInput');
+    const customSecondsInput = document.getElementById('customSecondsInput');
+    const applyCustomTimeBtn = document.getElementById('applyCustomTimeBtn');
+    const currentRealTime = document.getElementById('currentRealTime');
+    const modeTabs = document.querySelectorAll('.mode-tab');
+    const toastMessage = document.getElementById('toastMessage');
+    const toastText = document.getElementById('toastText');
+
+    /* =====================================================================
+     *  Web Audio API: 교실용 부드러운 종소리 및 차임 사운드 합성기
+     * ===================================================================== */
+    let audioCtx = null;
+
+    function getAudioContext() {
+      if (!audioCtx) {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        if (AudioContextClass) {
+          audioCtx = new AudioContextClass();
+        }
+      }
+      if (audioCtx && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+      }
+      return audioCtx;
+    }
+
+    // 수업 시작/알림 짧은 차임벨
+    function playStartChime() {
+      if (!isSoundEnabled) return;
+      try {
+        const ctx = getAudioContext();
+        if (!ctx) return;
+        const now = ctx.currentTime;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(523.25, now); // C5
+        osc.frequency.exponentialRampToValueAtTime(659.25, now + 0.15); // E5
+
+        gain.gain.setValueAtTime(0.2, now);
+        gain.gain.exponentialRampToValueAtTime(0.001, now + 0.4);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(now);
+        osc.stop(now + 0.45);
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    // 세션 완료 알림: 학교 종소리 (딩동댕동 차임)
+    function playCompletionChime() {
+      if (!isSoundEnabled) return;
+      try {
+        const ctx = getAudioContext();
+        if (!ctx) return;
+
+        // 학교 종소리 톤 (Sol - Mi - Do - Sol)
+        const notes = [
+          { freq: 783.99, time: 0.0, dur: 0.6 },  // G5
+          { freq: 659.25, time: 0.4, dur: 0.6 },  // E5
+          { freq: 523.25, time: 0.8, dur: 0.7 },  // C5
+          { freq: 783.99, time: 1.3, dur: 1.2 }   // G5 (길게)
+        ];
+
+        notes.forEach(note => {
+          const osc = ctx.createOscillator();
+          const gain = ctx.createGain();
+          const startTime = ctx.currentTime + note.time;
+
+          osc.type = 'triangle';
+          osc.frequency.setValueAtTime(note.freq, startTime);
+
+          gain.gain.setValueAtTime(0.3, startTime);
+          gain.gain.exponentialRampToValueAtTime(0.0001, startTime + note.dur);
+
+          osc.connect(gain);
+          gain.connect(ctx.destination);
+
+          osc.start(startTime);
+          osc.stop(startTime + note.dur + 0.1);
+        });
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    /* =====================================================================
+     *  시간 포맷 및 디스플레이 렌더링
+     * ===================================================================== */
+    function formatTime(sec) {
+      const m = Math.floor(sec / 60);
+      const s = sec % 60;
+      return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+
+    // 파이 부채꼴 SVG 패스 생성 함수 (Time Timer 핵심 비주얼)
+    function describeArc(x, y, radius, startAngle, endAngle) {
+      // 0도일 때 상단 12시를 가리키도록 변환
+      const start = polarToCartesian(x, y, radius, endAngle);
+      const end = polarToCartesian(x, y, radius, startAngle);
+      const arcSweep = endAngle - startAngle <= 180 ? "0" : "1";
+
+      return [
+        "M", x, y,
+        "L", start.x, start.y, 
+        "A", radius, radius, 0, arcSweep, 0, end.x, end.y,
+        "Z"
+      ].join(" ");
+    }
+
+    function polarToCartesian(centerX, centerY, radius, angleInDegrees) {
+      const angleInRadians = (angleInDegrees - 90) * Math.PI / 180.0;
+      return {
+        x: centerX + (radius * Math.cos(angleInRadians)),
+        y: centerY + (radius * Math.sin(angleInRadians))
+      };
+    }
+
+    // 전체 화면 및 비주얼 상태 업데이트
+    function render() {
+      const formatted = formatTime(remainingSeconds);
+
+      // 1. 상단 디지털 LED 디스플레이 & 중앙 타이머 업데이트
+      digitalClockDisplay.textContent = formatted;
+      mainTimeDisplay.textContent = formatted;
+
+      // 2. 브라우저 탭 타이틀 업데이트
+      document.title = `(${formatted}) ${MODES[currentMode].name} - 에듀 뽀모도로`;
+
+      // 3. 퍼센트 계산
+      const fraction = totalSeconds > 0 ? (remainingSeconds / totalSeconds) : 0;
+      const percent = Math.max(0, Math.min(100, Math.round(fraction * 100)));
+      percentRemaining.textContent = `${percent}%`;
+
+      // 4. 원형 프로그레스 링 갱신 (스트로크 오프셋)
+      const offset = CIRCUMFERENCE * (1 - fraction);
+      timerProgressRing.style.strokeDashoffset = offset;
+
+      // 5. Time Timer 파이 슬라이스 부채꼴 면적 갱신
+      // fraction이 1이면 360도 전체 채움, 줄어들수록 면적 축소
+      if (fraction <= 0) {
+        timerPieSlice.setAttribute('d', '');
+      } else if (fraction >= 0.9999) {
+        // 전체 원일 때는 원 패스
+        timerPieSlice.setAttribute('d', `M 100 12 A 88 88 0 1 1 99.99 12 Z`);
+      } else {
+        const angle = fraction * 360;
+        // 0도부터 angle도까지 시계방향 채움
+        const pathData = describeArc(100, 100, 88, 0, angle);
+        timerPieSlice.setAttribute('d', pathData);
+      }
+
+      // 입력창 동기화 (멈춰있을 때만)
+      if (!isRunning) {
+        customMinutesInput.value = Math.floor(remainingSeconds / 60);
+        customSecondsInput.value = remainingSeconds % 60;
+      }
+    }
+
+    // 테마 및 모드 스타일 일괄 변경
+    function updateModeStyle() {
+      const modeData = MODES[currentMode];
+
+      // 색상 적용
+      timerProgressRing.style.stroke = modeData.color;
+      timerPieSlice.style.fill = modeData.color;
+      digitalClockDisplay.style.color = modeData.color;
+      digitalClockDisplay.style.textShadow = `0 0 15px ${modeData.color}88`;
+      percentRemaining.style.color = modeData.color;
+
+      // 세션 뱃지 업데이트
+      sessionIcon.textContent = modeData.icon;
+      sessionName.textContent = modeData.name;
+      sessionBadge.className = `flex items-center gap-1.5 px-3.5 py-1 rounded-full text-xs sm:text-sm font-bold ${modeData.badgeClass} mb-2 shadow-sm transition-all duration-300`;
+
+      // 시작 버튼 테마
+      startPauseBtn.className = `flex-1 max-w-xs py-4 px-8 rounded-2xl ${modeData.btnClass} active:scale-98 text-white font-bold text-lg sm:text-xl shadow-lg flex items-center justify-center gap-3 transition-all`;
+
+      // 외곽 배경 글로우
+      visualGlowRing.className = `absolute inset-0 rounded-full ${modeData.glowClass} blur-3xl transition-all duration-700`;
+
+      // 서브 캡션 가이드
+      if (currentMode === 'focus') {
+        statusSubtext.textContent = '✍️ 바른 자세로 수업에 집중해보세요.';
+      } else if (currentMode === 'short') {
+        statusSubtext.textContent = '☕ 가벼운 스트레칭과 물 한 잔의 여유!';
+      } else if (currentMode === 'long') {
+        statusSubtext.textContent = '🎮 친구들과 휴식을 취하며 재충전해요.';
+      } else {
+        statusSubtext.textContent = '⚡ 자유롭게 목표 시간을 채워보세요.';
+      }
+
+      // 탭 활성화 UI
+      modeTabs.forEach(tab => {
+        if (tab.dataset.mode === currentMode) {
+          tab.className = `mode-tab active py-2 rounded-xl transition flex items-center justify-center gap-1 bg-white dark:bg-slate-800 shadow-sm font-bold`;
+          tab.style.color = modeData.color;
+        } else {
+          tab.className = `mode-tab py-2 rounded-xl transition flex items-center justify-center gap-1 text-slate-500 dark:text-slate-400 hover:text-slate-700 dark:hover:text-slate-200`;
+          tab.style.color = '';
+        }
+      });
+
+      render();
+    }
+
+    /* =====================================================================
+     *  타이머 구동 로직
+     * ===================================================================== */
+    function startTimer() {
+      if (isRunning) return;
+      if (remainingSeconds <= 0) {
+        remainingSeconds = totalSeconds;
+      }
+      isRunning = true;
+      playStartChime();
+
+      playIcon.setAttribute('data-lucide', 'pause');
+      playBtnText.textContent = '일시 정지';
+      lucide.createIcons();
+
+      timerInterval = setInterval(() => {
+        if (remainingSeconds > 0) {
+          remainingSeconds--;
+          render();
+        } else {
+          completeSession();
+        }
+      }, 1000);
+    }
+
+    function pauseTimer() {
+      if (!isRunning) return;
+      isRunning = false;
+      clearInterval(timerInterval);
+
+      playIcon.setAttribute('data-lucide', 'play');
+      playBtnText.textContent = '다시 시작';
+      lucide.createIcons();
+    }
+
+    function toggleStartPause() {
+      if (isRunning) {
+        pauseTimer();
+      } else {
+        startTimer();
+      }
+    }
+
+    function resetTimer() {
+      pauseTimer();
+      remainingSeconds = totalSeconds;
+      playBtnText.textContent = '타이머 시작';
+      render();
+      showToast('타이머가 초기화되었습니다.');
+    }
+
+    // 다음 세션 넘어가기
+    function skipToNextSession() {
+      pauseTimer();
+      if (currentMode === 'focus') {
+        // 집중 다음엔 휴식 (4회차마다 긴 휴식)
+        completedPomodoros++;
+        updatePomodoroDots();
+        if (completedPomodoros % 4 === 0) {
+          switchMode('long');
+          showToast('4세트 집중 완료! 긴 휴식 시간입니다 🎉');
+        } else {
+          switchMode('short');
+          showToast('수업 종료! 즐거운 쉬는 시간입니다.');
+        }
+      } else {
+        // 휴식 끝난 뒤 집중
+        switchMode('focus');
+        showToast('새로운 집중 수업을 시작해봅시다!');
+      }
+    }
+
+    // 세션 완료 처리 (종소리 + 콘페티 축하)
+    function completeSession() {
+      pauseTimer();
+      remainingSeconds = 0;
+      render();
+      playCompletionChime();
+
+      // 콘페티 효과 발생
+      if (typeof confetti === 'function') {
+        confetti({
+          particleCount: 120,
+          spread: 80,
+          origin: { y: 0.6 }
+        });
+      }
+
+      if (currentMode === 'focus') {
+        completedPomodoros++;
+        updatePomodoroDots();
+        showToast('👏 대단해요! 수업 집중 시간을 완수했습니다!');
+      } else {
+        showToast('⏰ 쉬는 시간이 끝났습니다. 다시 집중해볼까요?');
+      }
+
+      // 잠시 후 다음 세션 자동 준비
+      setTimeout(() => {
+        if (currentMode === 'focus') {
+          if (completedPomodoros % 4 === 0) {
+            switchMode('long');
+          } else {
+            switchMode('short');
+          }
+        } else {
+          switchMode('focus');
+        }
+      }, 2500);
+    }
+
+    // 모드 변경
+    function switchMode(newMode) {
+      currentMode = newMode;
+      totalSeconds = MODES[newMode].defaultSeconds;
+      remainingSeconds = totalSeconds;
+      pauseTimer();
+      playBtnText.textContent = '타이머 시작';
+      updateModeStyle();
+    }
+
+    // 상단 프리셋 버튼 클릭 시
+    function setPresetMinutes(mins) {
+      pauseTimer();
+      totalSeconds = mins * 60;
+      remainingSeconds = totalSeconds;
+      playBtnText.textContent = '타이머 시작';
+      render();
+      showToast(`${mins}분으로 설정되었습니다.`);
+    }
+
+    // 직접 입력 적용
+    function applyCustomInputTime() {
+      const min = parseInt(customMinutesInput.value, 10) || 0;
+      const sec = parseInt(customSecondsInput.value, 10) || 0;
+      const calculated = (min * 60) + sec;
+
+      if (calculated <= 0) {
+        showToast('0초 이상 설정해주세요.');
+        return;
+      }
+
+      pauseTimer();
+      currentMode = 'custom';
+      totalSeconds = calculated;
+      remainingSeconds = calculated;
+      playBtnText.textContent = '타이머 시작';
+      updateModeStyle();
+      showToast(`${min}분 ${sec}초로 세팅되었습니다.`);
+    }
+
+    // 완료 뽀모도로 도트 인디케이터 업데이트
+    function updatePomodoroDots() {
+      const container = document.getElementById('pomodoroDots');
+      const cycleText = document.getElementById('cycleCountText');
+      container.innerHTML = '';
+      
+      const dotsCount = Math.max(4, (completedPomodoros % 4) + 2);
+      for (let i = 0; i < 4; i++) {
+        const dot = document.createElement('span');
+        const isFilled = (i < (completedPomodoros % 4)) || (completedPomodoros > 0 && completedPomodoros % 4 === 0 && i < 4);
+        dot.className = `w-3 h-3 rounded-full transition-all duration-300 ${
+          isFilled ? 'bg-rose-500 scale-110 shadow-sm' : 'bg-slate-300 dark:bg-slate-700'
+        }`;
+        container.appendChild(dot);
+      }
+      cycleText.textContent = `${completedPomodoros} 세션 완료`;
+    }
+
+    /* =====================================================================
+     *  교실용 뷰 모드 & 전체화면 & 테마 제어
+     * ===================================================================== */
+
+    // 시각화 형태 토글: [부채꼴+링] -> [부채꼴만] -> [링만]
+    function toggleVisualMode() {
+      if (visualMode === 'both') {
+        visualMode = 'pie';
+        timerProgressRing.style.opacity = '0.15';
+        timerPieSlice.style.opacity = '1';
+        viewModeText.textContent = '원반만';
+        showToast('원반(파이) 채우기 모드');
+      } else if (visualMode === 'pie') {
+        visualMode = 'ring';
+        timerProgressRing.style.opacity = '1';
+        timerPieSlice.style.opacity = '0';
+        viewModeText.textContent = '링 게이지만';
+        showToast('원형 링 아웃라인 모드');
+      } else {
+        visualMode = 'both';
+        timerProgressRing.style.opacity = '1';
+        timerPieSlice.style.opacity = '0.85';
+        viewModeText.textContent = '동시 표시';
+        showToast('원반 + 테두리 링 결합 모드');
+      }
+    }
+
+    // 사운드 토글
+    function toggleSound() {
+      isSoundEnabled = !isSoundEnabled;
+      if (isSoundEnabled) {
+        soundIcon.setAttribute('data-lucide', 'volume-2');
+        soundIcon.className = 'w-5 h-5 text-emerald-600 dark:text-emerald-400';
+        showToast('알림 소리가 켜졌습니다.');
+        playStartChime();
+      } else {
+        soundIcon.setAttribute('data-lucide', 'volume-x');
+        soundIcon.className = 'w-5 h-5 text-slate-400';
+        showToast('무음 모드로 변경되었습니다.');
+      }
+      lucide.createIcons();
+    }
+
+    // 다크 모드 (순수 검은색 #000000 배경) / 라이트 모드 전환 로직
+    function applyTheme(isDark) {
+      if (isDark) {
+        document.documentElement.classList.add('dark');
+        themeIcon.setAttribute('data-lucide', 'sun');
+        themeIcon.className = 'w-5 h-5 text-amber-400';
+        if (themeText) themeText.textContent = '라이트 모드';
+      } else {
+        document.documentElement.classList.remove('dark');
+        themeIcon.setAttribute('data-lucide', 'moon');
+        themeIcon.className = 'w-5 h-5 text-indigo-600';
+        if (themeText) themeText.textContent = '다크 모드';
+      }
+      lucide.createIcons();
+    }
+
+    function toggleTheme() {
+      const isDark = document.documentElement.classList.contains('dark');
+      const targetDark = !isDark;
+      applyTheme(targetDark);
+      showToast(targetDark ? '🌙 블랙 다크 모드로 설정되었습니다.' : '☀️ 라이트 모드로 설정되었습니다.');
+    }
+
+    // 전체화면 토글
+    function toggleFullscreen() {
+      if (!document.fullscreenElement) {
+        document.documentElement.requestFullscreen().then(() => {
+          fullscreenIcon.setAttribute('data-lucide', 'minimize');
+          lucide.createIcons();
+          showToast('전자칠판 전체화면 활성화');
+        }).catch(err => {
+          console.warn('전체화면 권한 오류:', err);
+        });
+      } else {
+        if (document.exitFullscreen) {
+          document.exitFullscreen();
+          fullscreenIcon.setAttribute('data-lucide', 'maximize');
+          lucide.createIcons();
+        }
+      }
+    }
+
+    // 알림 토스트 메시지
+    let toastTimeout = null;
+    function showToast(msg) {
+      toastText.textContent = msg;
+      toastMessage.classList.remove('translate-y-20', 'opacity-0');
+      toastMessage.classList.add('translate-y-0', 'opacity-100');
+
+      if (toastTimeout) clearTimeout(toastTimeout);
+      toastTimeout = setTimeout(() => {
+        toastMessage.classList.add('translate-y-20', 'opacity-0');
+        toastMessage.classList.remove('translate-y-0', 'opacity-100');
+      }, 2400);
+    }
+
+    // 우상단 실시간 시계 갱신
+    function updateRealTimeClock() {
+      const now = new Date();
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const seconds = String(now.getSeconds()).padStart(2, '0');
+      currentRealTime.textContent = `${hours}:${minutes}:${seconds}`;
+    }
+
+    /* =====================================================================
+     *  이벤트 리스너 바인딩 및 초기화
+     * ===================================================================== */
+    window.addEventListener('DOMContentLoaded', () => {
+      // 기본 테마를 검은색 배경의 다크 모드로 설정
+      applyTheme(true);
+
+      // 아이콘 렌더링
+      lucide.createIcons();
+
+      // 버튼 이벤트 바인딩
+      startPauseBtn.addEventListener('click', toggleStartPause);
+      resetBtn.addEventListener('click', resetTimer);
+      skipBtn.addEventListener('click', skipToNextSession);
+      soundToggleBtn.addEventListener('click', toggleSound);
+      viewModeBtn.addEventListener('click', toggleVisualMode);
+      themeToggleBtn.addEventListener('click', toggleTheme);
+      fullscreenBtn.addEventListener('click', toggleFullscreen);
+      applyCustomTimeBtn.addEventListener('click', applyCustomInputTime);
+
+      // 모드 탭 클릭 이벤트
+      modeTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          const mode = tab.dataset.mode;
+          switchMode(mode);
+        });
+      });
+
+      // 엔터 키로 직접 세팅 적용
+      [customMinutesInput, customSecondsInput].forEach(inp => {
+        inp.addEventListener('keydown', (e) => {
+          if (e.key === 'Enter') applyCustomInputTime();
+        });
+      });
+
+      // 스페이스바 단축키 (시작/일시정지)
+      window.addEventListener('keydown', (e) => {
+        if (e.code === 'Space' && e.target.tagName !== 'INPUT') {
+          e.preventDefault();
+          toggleStartPause();
+        }
+      });
+
+      // 실시간 시계 타이머 실행
+      updateRealTimeClock();
+      setInterval(updateRealTimeClock, 1000);
+
+      // 초기 뷰 설정
+      updateModeStyle();
+    });
+  </script>
+</body>
+</html>
